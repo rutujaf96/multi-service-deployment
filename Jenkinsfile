@@ -1,5 +1,9 @@
 pipeline {
     agent any
+    
+    tools {
+        jdk 'jdk21' 
+    }
 
     parameters {
         string(name: 'APP_SERVICE', defaultValue: 'PAYMENTS', description: 'App Domain')
