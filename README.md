@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Four Microservices / Four Environments
 
 This repository contains exactly four microservices and four deployment environments.
@@ -23,3 +24,7 @@ This repository contains exactly four microservices and four deployment environm
 
 Each service has its own Maven project, Dockerfile, REST endpoint, and test.
 The environment files provide namespace, replica, and resource settings.
+=======
+# multi-service-deployment
+Jenkins Multi-Service Deployment Automation
+>>>>>>> 0e647b9c20024a781b99cd112385ef313daef324
