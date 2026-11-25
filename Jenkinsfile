@@ -47,11 +47,17 @@ pipeline {
             }
         }
 
-        stage('Build and test') {
+         stage('Build and test') {
             when { expression { params.DEPLOYMENT_ACTION == 'BUILD' || params.DEPLOYMENT_ACTION == 'DEPLOY' } }
             steps {
                 dir("services/${params.MICROSERVICE}") {
-                    sh 'mvn -B clean test package'
+                    sh """
+                        docker run --rm \
+                        -v \$PWD:/app \
+                        -w /app \
+                        maven:3.9-eclipse-temurin-21 \
+                        mvn -B clean test package
+                    """
                 }
             }
         }
