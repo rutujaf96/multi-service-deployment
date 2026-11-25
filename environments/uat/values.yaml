@@ -1,0 +1,11 @@
+# Environment-specific defaults for UAT
+environment: uat
+namespace: uat
+replicas: 2
+resources:
+  requests:
+    cpu: "200m"
+    memory: "256Mi"
+  limits:
+    cpu: "750m"
+    memory: "768Mi"

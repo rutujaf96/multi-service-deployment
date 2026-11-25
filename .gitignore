@@ -1,0 +1,9 @@
+target/
+*.jar
+*.log
+.env
+.env.*
+!.env.example
+.terraform/
+*.tfstate
+*.tfstate.*
