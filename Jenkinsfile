@@ -2,48 +2,40 @@ pipeline {
     agent any
 
     parameters {
-        choice(name: 'MICROSERVICE',
-               choices: ['payment-service', 'customer-service',
-                         'order-service', 'healthcare-service'],
-               description: 'Select one microservice')
-        choice(name: 'ENVIRONMENT',
-               choices: ['dev', 'qa', 'uat', 'prod'],
-               description: 'Select deployment environment')
-        choice(name: 'ACTION',
-               choices: ['BUILD', 'DEPLOY', 'RESTART', 'ROLLBACK'],
-               description: 'Select operation')
+        // UI मधील ४ ड्रॉपडाउन्सशी हे जुळलं पाहिजे
+        string(name: 'APP_SERVICE', defaultValue: 'PAYMENTS', description: 'App Domain')
+        string(name: 'MICROSERVICE', defaultValue: 'payment-service', description: 'Select one microservice')
+        choice(name: 'ENVIRONMENT', choices: ['dev', 'qa', 'uat', 'prod'], description: 'Select deployment environment')
+        choice(name: 'DEPLOYMENT_ACTION', choices: ['BUILD', 'DEPLOY', 'RESTART', 'ROLLBACK'], description: 'Select operation')
     }
 
     environment {
         AWS_REGION = 'eu-north-1'
-        // Set ECR_REGISTRY and EKS_CLUSTER using Jenkins configuration.
+        AWS_ACCOUNT_ID = 'YOUR_AWS_ACCOUNT_ID' // तुमचा AWS Account ID येथे टाका
+        ECR_REGISTRY = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+        ECR_REPO = "${ECR_REGISTRY}/${params.MICROSERVICE}"
+        IMAGE_TAG = "${env.BUILD_NUMBER}"
     }
 
     stages {
         stage('Validate') {
             steps {
                 script {
-                    if (!(params.MICROSERVICE in [
-                        'payment-service', 'customer-service',
-                        'order-service', 'healthcare-service'
-                    ])) {
-                        error('Invalid microservice')
+                    if (!params.MICROSERVICE?.trim()) {
+                        error('Microservice is required')
                     }
-                    if (!(params.ENVIRONMENT in ['dev', 'qa', 'uat', 'prod'])) {
-                        error('Invalid environment')
-                    }
-                    echo "Service=${params.MICROSERVICE}, Environment=${params.ENVIRONMENT}, Action=${params.ACTION}"
+                    echo "Service=${params.MICROSERVICE}, Env=${params.ENVIRONMENT}, Action=${params.DEPLOYMENT_ACTION}"
                 }
             }
         }
 
         stage('Production approval') {
             when {
-                expression { params.ENVIRONMENT == 'prod' && params.ACTION != 'BUILD' }
+                expression { params.ENVIRONMENT == 'prod' && params.DEPLOYMENT_ACTION != 'BUILD' }
             }
             steps {
-                input message: "Approve ${params.ACTION} for ${params.MICROSERVICE} in PROD?",
-                      ok: 'Approve'
+                // इथे पाइपलाइन थांबेल आणि तुमची मंजुरी (Approve) मागेल
+                input message: "Approve ${params.DEPLOYMENT_ACTION} for ${params.MICROSERVICE} in PROD?", ok: 'Approve'
             }
         }
 
@@ -54,7 +46,7 @@ pipeline {
         }
 
         stage('Build and test') {
-            when { expression { params.ACTION == 'BUILD' || params.ACTION == 'DEPLOY' } }
+            when { expression { params.DEPLOYMENT_ACTION == 'BUILD' || params.DEPLOYMENT_ACTION == 'DEPLOY' } }
             steps {
                 dir("services/${params.MICROSERVICE}") {
                     sh 'mvn -B clean test package'
@@ -62,22 +54,39 @@ pipeline {
             }
         }
 
-        stage('Docker build') {
-            when { expression { params.ACTION == 'DEPLOY' } }
+        stage('Docker build & Push to ECR') {
+            when { expression { params.DEPLOYMENT_ACTION == 'DEPLOY' } }
             steps {
                 dir("services/${params.MICROSERVICE}") {
-                    sh 'docker build -t ${MICROSERVICE}:${BUILD_NUMBER} .'
+                    // १. Docker Image बनवणे
+                    sh "docker build -t ${ECR_REPO}:${IMAGE_TAG} ."
+                    
+                    // २. ECR मध्ये लॉगिन करणे आणि पुश करणे
+                    sh """
+                        aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                        docker push ${ECR_REPO}:${IMAGE_TAG}
+                    """
                 }
-                echo 'Add authenticated ECR login and image push here.'
             }
         }
 
-        stage('Deploy / operate') {
-            when { expression { params.ACTION != 'BUILD' } }
+        stage('Deploy / Operate') {
+            when { expression { params.DEPLOYMENT_ACTION != 'BUILD' } }
             steps {
-                echo "Selected operation: ${params.ACTION}"
-                echo "Environment config: environments/${params.ENVIRONMENT}/"
-                echo 'Connect this stage to your approved EKS context and deployment scripts.'
+                dir("services/${params.MICROSERVICE}") {
+                    // ३. तुमच्या bash स्क्रिप्ट्स कॉल करणे (ज्या आपण आधी बनवल्या होत्या)
+                    script {
+                        if (params.DEPLOYMENT_ACTION == 'DEPLOY') {
+                            sh "./deploy.sh ${params.ENVIRONMENT} ${ECR_REPO}:${IMAGE_TAG} ${AWS_REGION}"
+                        } 
+                        else if (params.DEPLOYMENT_ACTION == 'RESTART') {
+                            sh "./restart.sh ${params.ENVIRONMENT} ${params.MICROSERVICE}"
+                        } 
+                        else if (params.DEPLOYMENT_ACTION == 'ROLLBACK') {
+                            sh "./rollback.sh ${params.ENVIRONMENT} ${params.MICROSERVICE}"
+                        }
+                    }
+                }
             }
         }
     }
